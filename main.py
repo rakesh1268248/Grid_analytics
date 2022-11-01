@@ -1,133 +1,62 @@
-import fitz
-import io
-import docx
-from pptx import Presentation
-import re
-import string
-import nltk
-import streamlit as st
-nltk.download('all')
-from nltk.corpus import stopwords
-from nltk import sent_tokenize,word_tokenize
-from nltk.stem import WordNetLemmatizer
-stop_words=set(nltk.corpus.stopwords.words('english'))
-lemmatizer = WordNetLemmatizer()
-from rank_bm25 import *
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
-from collections import Counter
+import streamlit as st # data app development
+import subprocess # process in the os
+from subprocess import STDOUT, check_call #os process manipuation
+import os #os process manipuation
+import base64 # byte object into a pdf file 
+import camelot as cam # extracting tables from PDFs 
 
-def return_doc_from_bytes(pdfbytes):
-  doc = fitz.open(stream=pdfbytes)
-  return doc
+# to run this only once and it's cached
+@st.cache
+def gh():
+    """install ghostscript on the linux machine"""
+    proc = subprocess.Popen('apt-get install -y ghostscript', shell=True, stdin=None, stdout=open(os.devnull,"wb"), stderr=STDOUT, executable="/bin/bash")
+    proc.wait()
+
+gh()
 
 
-def preprocessing(documents):
-  documents_clean = []
-  for d in documents:
-    # Remove Unicode
-    document_test = re.sub('[^a-zA-Z0-9]', ' ', str(d))
-    # Remove Mentions
-    document_test = re.sub(r'@\w+', '', document_test)
-    # Lowercase the document
-    document_test = document_test.lower()
-    # Remove punctuations
-    document_test = re.sub(r'[%s]' % re.escape(string.punctuation), ' ', document_test)
-    # Lowercase the numbers
-    document_test = re.sub(r'[0-9]', '', document_test)
-    # Remove the doubled space
-    document_test = re.sub(r'\s{2,}', ' ', document_test)
-    #tokenization
-    document_test = document_test.split()
-    #lemmmitization
-    document_test = [lemmatizer.lemmatize(word) for word in document_test if not word in set(stopwords.words('english'))]
-    document_test = ' '.join(document_test)
-    documents_clean.append(document_test)
-  return documents_clean
-def data_string(cleaned_document):
-  clean_text=''
-  for i in cleaned_document:
-    clean_text+=i+" "
-  return clean_text
 
-def search_report(documents_clean,query):
-  tokenized_corpus = [doc.split(" ") for doc in documents_clean]
-  bm25 = BM25Okapi(tokenized_corpus)
-  tokenized_query = query.split()
-  # doc_scores = bm25.get_scores(tokenized_query)
-  result=bm25.get_top_n(tokenized_query,documents_clean , n=15)
-  return result
-def st_ui():
-  st.set_page_config(layout = "wide")
-  st.title("Auto Review Legal contracts - DocumentAI")  
-  fileupload = st.sidebar.file_uploader("Upload a Contract here")
-  select_category = st.sidebar.selectbox("select_category", ["Summarization", "Sentiment Analytics", "Risk Analytics","Price Analytics","People/Stakeholders Analytics","Spatial Analytics",
-                                                             "Text To Search","Grid Analytics","Social Analytics","Conversation-Transcripts Analytics","Non English Text","Filter Non English",
-                                                            "List Of Languages","Display Full English Version","Full Document Translation"])
-  Button=st.sidebar.button('content Analytics')
-  #button=st.sidebar.button('Risk Analytics')
-  Enter_text = st.sidebar.text_input("Text to search")
-   
-  if fileupload:
-    text=[]
-    pdfbytes = fileupload.getvalue()
-    doc = return_doc_from_bytes(pdfbytes)
-    for page in doc:
-      text+=(page.get_text().split('\n'))
-    cleaned_document=preprocessing(text)
-    clean_text=data_string(cleaned_document)
-    if select_category == "Content Analytics":
-      if Button:
-        st.header('wordcloud')
-        wordcloud = WordCloud(width = 800, height =600,background_color ='white',min_font_size = 5,max_words=500).generate(clean_text)
-        # plot the WordCloud image
-        plt.figure(figsize = (15,10), facecolor = None)
-        plt.imshow(wordcloud,interpolation="bilinear")
-        plt.axis("off")
-        plt.tight_layout(pad = 0)
-        plt.show()
-        st.pyplot(fig=plt)
-    if select_category == "Risk Analytics":
-      tokens=[]
-      for sentence in cleaned_document:
-        tokens+=nltk.word_tokenize(sentence)
-      a=Counter(tokens)
-      risk_words=['omitted','Accident','Interruption','Failure','Consequence','Contingencies','harm','Crisis','Disaster','Emergency', 'Hazard','Intolerable', 'Mitigation','Uncertainties','possession','burdened','sublicensees',
-                  'termination','indeminity','liability','breach','liquidity','missed delivery dates','warranty','problems','dispute','confidentiality' 'disclosures','litigation','compliance',
-                  'conflicts','monetary','losses','Severity','interruption','Reduction','Damage','Vulnerability']
-      for key, value in list(a.items()):
-          if key not in risk_words:
-              del a[key]
-#       r_text=''
-#       for key, value in list(a.items()):
-#           r_text+=key+" "
-      
-     
-      #if button:
-      st.header('risk analytics wordcloud')
-      #wordcloud = WordCloud(width=800,height=800,background_color='white').generate(r_text)
-      wordcloud = WordCloud(width=800,height=800,background_color='white').generate_from_frequencies(a)
-      # plot the WordCloud image
-      plt.figure(figsize = (8,8), facecolor = None)
-      plt.imshow(wordcloud,interpolation="bilinear")
-      plt.axis("off")
-      plt.tight_layout(pad = 0)
-      plt.show()
-      st.pyplot(fig=plt)
+st.title("PDF Table Extractor")
+st.subheader("with `Camelot` Python library")
 
-    if select_category == "Search":
-      if Enter_text:
-        result=search_report(cleaned_document,Enter_text.lower())
-        st.header('Related information to clause')
-        info=''
-        for i in result:
-            info+=i+" "
-        st.write(info)
-    
-      
+st.image("https://raw.githubusercontent.com/camelot-dev/camelot/master/docs/_static/camelot.png", width=200)
 
-      
- 
 
-if __name__ == "__main__":
-    st_ui()
+# file uploader on streamlit 
+
+input_pdf = st.file_uploader(label = "upload your pdf here", type = 'pdf')
+
+st.markdown("### Page Number")
+
+page_number = st.text_input("Enter the page # from where you want to extract the PDF eg: 3", value = 1)
+
+# run this only when a PDF is uploaded
+
+if input_pdf is not None:
+    # byte object into a PDF file 
+    with open("input.pdf", "wb") as f:
+        base64_pdf = base64.b64encode(input_pdf.read()).decode('utf-8')
+        f.write(base64.b64decode(base64_pdf))
+    f.close()
+
+    # read the pdf and parse it using stream
+    table = cam.read_pdf("input.pdf", pages = page_number, flavor = 'stream')
+
+    st.markdown("### Number of Tables")
+
+    # display the output after parsing 
+    st.write(table)
+
+    # display the table
+
+    if len(table) > 0:
+
+        # extract the index value of the table
+        
+        option = st.selectbox(label = "Select the Table to be displayed", options = range(len(table) + 1))
+
+        st.markdown('### Output Table')
+
+        # display the dataframe
+        
+        st.dataframe(table[int(option)-1].df)
